@@ -22,10 +22,10 @@ from pythonosc import osc_server
 # -------------------------------------------------------------------
 dispatcher = Dispatcher()
 weather_array = [] # for the parsed weather data
-# adjustment values received from Unity:
-temp_adjustment = 1
-pressure_adjustment = 1
-radiation_adjustment = 1
+
+# less than 1 -> deterioration in weather
+# greater than 1 -> improvement in weather
+weather_adjustment = 1
 
 # -------------------------------------------------------------------
 # FUNCTIONS
@@ -82,20 +82,26 @@ def normalise_data():
     else:
       row['radiation_norm'] = '--'
 
-    # combined weather - cold, moderate, hot
-    row['weather_norm'] = calc_weather(row)
-
     weather_array[i] = row
     i+=1
 
 # -------------------------------------------------------------------
-# calculate combined weather
+# calculate weather value - can be cold, moderate or hot
 # -------------------------------------------------------------------
-def calc_weather(row):
-  if row['max_temp_norm'] == '--': return '--'
-  if row['pressure_norm'] == '--': return '--'
+def calc_weather(index):
+  max_temp = weather_array[index]['max_temp_norm']
+  pressure = weather_array[index]['pressure_norm']
 
-  combined_val = (row['max_temp_norm'] + row['pressure_norm']) / 2
+  if max_temp == '--': return 2
+  if pressure == '--': return 2
+
+  max_temp = max_temp * weather_adjustment
+  pressure = pressure * weather_adjustment
+
+  max_temp = 1 if max_temp > 1 else 0 if max_temp < 0 else max_temp
+  pressure = 1 if pressure > 1 else 0 if pressure < 0 else pressure
+
+  combined_val = (max_temp + pressure) / 2
   if 0 <= round(combined_val, 2) <= 0.5:
     return 1 # cold
   elif 0.51 <= round(combined_val, 2) <= 0.6:
@@ -143,20 +149,20 @@ def send_to(client, index):
   client.send_message("/max_temp_norm", fetch_data(index, 'max_temp_norm'))
   client.send_message("/pressure_norm", fetch_data(index, 'pressure_norm'))
   client.send_message("/radiation_norm",fetch_data(index, 'radiation_norm'))
-  client.send_message("/weather_norm",  fetch_data(index, 'weather_norm'))
+  client.send_message("/weather_norm",  calc_weather(index))
 
 def fetch_data(index, column):
   val = last_valid_value(index, column)
   if column == 'pressure' or column == 'pressure_norm':
-    val = val * pressure_adjustment
+    val = float(val) * weather_adjustment
     if column == 'pressure_norm':
       val = 1 if val > 1 else 0 if val < 0 else val
   if column == 'min_temp' or column == 'min_temp_norm':
-    val = val * temp_adjustment
+    val = float(val) * weather_adjustment
     if column == 'min_temp_norm':
       val = 1 if val > 1 else 0 if val < 0 else val
   if column == 'max_temp' or column == 'max_temp_norm':
-    val = val * temp_adjustment
+    val = float(val) * weather_adjustment
     if column == 'max_temp_norm':
       val = 1 if val > 1 else 0 if val < 0 else val
   return val
@@ -172,35 +178,46 @@ def last_valid_value(index, column):
     return last_valid_value(index-1, column)
 
 # -------------------------------------------------------------------
+# calculate weather_adjustment based on size of pillar hit value
+# 0.1 - big improvement in weather
+# 0.5 - no change
+# 1.0 - big deterioration in weather
+# -------------------------------------------------------------------
+def calc_weather_adjustment(pillar_hit):
+  global weather_adjustment
+  if 0 <= pillar_hit <= 0.49:
+    # better weather - produces a value of between 1.1 and 1.9
+    weather_adjustment = round(((0.49-pillar_hit)/0.49) + 1, 2)
+  elif pillar_hit == 0.5:
+    # no change
+    weather_adjustment = 1
+  if 0.51 <= pillar_hit <= 1:
+    # worse weather - produces a value of between 0.1 and 0.9
+    weather_adjustment = round((1-pillar_hit) * 2, 2)
+  print(f"weather adjustment now {weather_adjustment}")
+# -------------------------------------------------------------------
 # set up the endpoints that the OSC server will expose
 # -------------------------------------------------------------------
 def configure_dispatcher():
-  dispatcher.map("/temp", receive_temp)
-  dispatcher.map("/pressure", receive_pressure)
-  dispatcher.map("/radiation", receive_radiation)
+  dispatcher.map("/pillar_hit", receive_pillar_hit)
+  dispatcher.map("/deaded", receive_death)
 
 # -------------------------------------------------------------------
 # The following are the handlers for the endpoints
 # -------------------------------------------------------------------
-def receive_temp(address: str, *args: List[Any]) -> None:
-  temp = args[0]
-  print(f"received temp adjustment {temp}")
-  global temp_adjustment
-  temp_adjustment += temp
-  print(f"temp_adjustment is now {temp_adjustment}")
+def receive_pillar_hit(address: str, *args: List[Any]) -> None:
+  pillar_hit = round(float(args[0]),2)
+  print(f"received pillar hit {pillar_hit}")
+
+  calc_weather_adjustment(pillar_hit)
+
+  max_client = udp_client.SimpleUDPClient('127.0.0.1', 4444)
+  max_client.send_message("/pillar_norm", pillar_hit)
 # -------------------------------------------------------------------
-def receive_pressure(address: str, *args: List[Any]) -> None:
-  pressure = args[0]
-  print(f"received pressure adjustment {pressure}")
-  global pressure_adjustment
-  pressure_adjustment += pressure
-  print(f"pressure_adjustment is now {pressure_adjustment}")
-# -------------------------------------------------------------------
-def receive_radiation(address: str, *args: List[Any]) -> None:
-  radiation = args[0]
-  print(f"received radiation adjustment {radiation}")
-  # TODO: this is a text field - how to adjust this?
-  # radiation_adjustment += radiation
+def receive_death(address: str, *args: List[Any]) -> None:
+  print(f"died!")
+  max_client = udp_client.SimpleUDPClient('127.0.0.1', 4444)
+  max_client.send_message("/deaded", True)
 
 # -------------------------------------------------------------------
 # run the OSC server its own thread
@@ -246,7 +263,7 @@ if __name__ == "__main__":
     print(f"sending row: {row}")
     send_to(max_client, i)
     send_to(unity_client, i)
-    time.sleep(0.1)
+    time.sleep(1)
     i+=1
     # if we reach the end, go back to the beginning!
     if i == len(weather_array): i = 0
