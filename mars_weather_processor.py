@@ -103,11 +103,11 @@ def calc_weather(index):
   pressure = 1 if pressure > 1 else 0 if pressure < 0 else pressure
 
   combined_val = (max_temp + pressure) / 2
-  if 0 <= round(combined_val, 2) <= 0.5:
+  if 0 <= round(combined_val, 2) <= 0.3:
     return 1 # cold
-  elif 0.51 <= round(combined_val, 2) <= 0.6:
+  elif 0.31 <= round(combined_val, 2) <= 0.7:
     return 2 # moderate
-  elif 0.61 <= round(combined_val, 2) <= 1:
+  elif 0.71 <= round(combined_val, 2) <= 1:
     return 3 # hot
 
 # -------------------------------------------------------------------
