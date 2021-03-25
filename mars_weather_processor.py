@@ -190,15 +190,16 @@ def last_valid_value(index, column):
 def calc_weather_adjustment(pillar_hit):
   global weather_adjustment
   if 0 <= pillar_hit <= 0.49:
-    # better weather - produces a value of between 1.1 and 1.9
-    weather_adjustment = round(((0.49-pillar_hit)/0.49) + 1, 2)
-  elif pillar_hit == 0.5:
-    # no change
-    weather_adjustment = 1
+    # better weather
+    weather_adjustment += round(((0.49-pillar_hit)/0.49), 2)
+    if weather_adjustment > 2: weather_adjustment = 2
+    # print(f"increased weather adjustment now ************** {weather_adjustment}")
+
   if 0.51 <= pillar_hit <= 1:
     # worse weather - produces a value of between 0.1 and 0.9
-    weather_adjustment = round((1-pillar_hit) * 2, 2)
-  print(f"weather adjustment now {weather_adjustment}")
+    weather_adjustment -= round((pillar_hit-0.5)/0.5, 2)
+    if weather_adjustment < 0.1: weather_adjustment = 0.1
+    # print(f"reduced weather adjustment now ************** {weather_adjustment}")
 
 # -------------------------------------------------------------------
 # set up the endpoints that the OSC server will expose
@@ -212,13 +213,20 @@ def configure_dispatcher():
 # -------------------------------------------------------------------
 def receive_pillar_hit(address: str, *args: List[Any]) -> None:
   pillar_hit = round(float(args[0]),2)
-  print(f"received pillar hit: {pillar_hit}")
+  # if 0 <= pillar_hit <= 0.25:
+  #   print(f"SMALL pillar_hit: {pillar_hit}")
+  # if 0.26 <= pillar_hit <= 0.5:
+  #   print(f"MEDIUM pillar_hit: {pillar_hit}")
+  # if 0.51 <= pillar_hit <= 0.75:
+  #   print(f"BIG pillar_hit: {pillar_hit}")
+  # if 0.76 <= pillar_hit <= 1:
+  #   print(f"HUGE pillar_hit: {pillar_hit}")
   calc_weather_adjustment(pillar_hit)
   max_client.send_message("/pillar_norm", pillar_hit)
 # -------------------------------------------------------------------
 def receive_game_status(address: str, *args: List[Any]) -> None:
   status = args[0]
-  print(f"received game status: {status}")
+  # print(f"received game status: {status}")
   max_client.send_message("/game_status", status)
 
 # -------------------------------------------------------------------
