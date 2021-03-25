@@ -21,8 +21,11 @@ from pythonosc import osc_server
 # GLOBALS
 # -------------------------------------------------------------------
 dispatcher = Dispatcher()
-weather_array = [] # for the parsed weather data
-
+# create OSC clients - one to connect to MAX, the other to Unity
+max_client   = udp_client.SimpleUDPClient('127.0.0.1', 4444)
+unity_client = udp_client.SimpleUDPClient('127.0.0.1', 4445)
+# variable for the parsed weather data
+weather_array = []
 # less than 1 -> deterioration in weather
 # greater than 1 -> improvement in weather
 weather_adjustment = 1
@@ -140,16 +143,17 @@ def find_min(column):
 # -------------------------------------------------------------------
 # sending values to Max and Unity
 # -------------------------------------------------------------------
-def send_to(client, index):
-  client.send_message("/min_temp", fetch_data(index, 'min_temp'))
-  client.send_message("/max_temp", fetch_data(index, 'max_temp'))
-  client.send_message("/pressure", fetch_data(index, 'pressure'))
-  client.send_message("/radiation",fetch_data(index, 'radiation'))
-  client.send_message("/min_temp_norm", fetch_data(index, 'min_temp_norm'))
-  client.send_message("/max_temp_norm", fetch_data(index, 'max_temp_norm'))
-  client.send_message("/pressure_norm", fetch_data(index, 'pressure_norm'))
-  client.send_message("/radiation_norm",fetch_data(index, 'radiation_norm'))
-  client.send_message("/weather_norm",  calc_weather(index))
+def send_osc_messages(index):
+  for client in [max_client, unity_client]:
+    client.send_message("/min_temp", fetch_data(index, 'min_temp'))
+    client.send_message("/max_temp", fetch_data(index, 'max_temp'))
+    client.send_message("/pressure", fetch_data(index, 'pressure'))
+    client.send_message("/radiation",fetch_data(index, 'radiation'))
+    client.send_message("/min_temp_norm", fetch_data(index, 'min_temp_norm'))
+    client.send_message("/max_temp_norm", fetch_data(index, 'max_temp_norm'))
+    client.send_message("/pressure_norm", fetch_data(index, 'pressure_norm'))
+    client.send_message("/radiation_norm",fetch_data(index, 'radiation_norm'))
+    client.send_message("/weather_norm",  calc_weather(index))
 
 def fetch_data(index, column):
   val = last_valid_value(index, column)
@@ -195,29 +199,27 @@ def calc_weather_adjustment(pillar_hit):
     # worse weather - produces a value of between 0.1 and 0.9
     weather_adjustment = round((1-pillar_hit) * 2, 2)
   print(f"weather adjustment now {weather_adjustment}")
+
 # -------------------------------------------------------------------
 # set up the endpoints that the OSC server will expose
 # -------------------------------------------------------------------
 def configure_dispatcher():
   dispatcher.map("/pillar_hit", receive_pillar_hit)
-  dispatcher.map("/deaded", receive_death)
+  dispatcher.map("/game_status", receive_game_status)
 
 # -------------------------------------------------------------------
 # The following are the handlers for the endpoints
 # -------------------------------------------------------------------
 def receive_pillar_hit(address: str, *args: List[Any]) -> None:
   pillar_hit = round(float(args[0]),2)
-  print(f"received pillar hit {pillar_hit}")
-
+  print(f"received pillar hit: {pillar_hit}")
   calc_weather_adjustment(pillar_hit)
-
-  max_client = udp_client.SimpleUDPClient('127.0.0.1', 4444)
   max_client.send_message("/pillar_norm", pillar_hit)
 # -------------------------------------------------------------------
-def receive_death(address: str, *args: List[Any]) -> None:
-  print(f"died!")
-  max_client = udp_client.SimpleUDPClient('127.0.0.1', 4444)
-  max_client.send_message("/deaded", True)
+def receive_game_status(address: str, *args: List[Any]) -> None:
+  status = args[0]
+  print(f"received game status: {status}")
+  max_client.send_message("/game_status", status)
 
 # -------------------------------------------------------------------
 # run the OSC server its own thread
@@ -228,7 +230,6 @@ def start_osc_server():
                       dispatcher)
   print("Serving on {}".format(server.server_address))
   server.serve_forever()
-
 
 # -------------------------------------------------------------------
 # MAIN
@@ -249,20 +250,14 @@ if __name__ == "__main__":
   server.start()
 
   # -----------------------------------------------------------------
-  # OSC client setup
+  # OSC client loop
   # -----------------------------------------------------------------
-  # create OSC clients - one to connect to MAX, the other to Unity
-  max_client   = udp_client.SimpleUDPClient('127.0.0.1', 4444)
-  unity_client = udp_client.SimpleUDPClient('127.0.0.1', 4445)
-
   # the following sets up a repeating loop through the weather data
   # each iteration sends the weather data row to Max and Unity
   i = 0
   while i < len(weather_array):
     row = weather_array[i]
-    print(f"sending row: {row}")
-    send_to(max_client, i)
-    send_to(unity_client, i)
+    send_osc_messages(i)
     time.sleep(1)
     i+=1
     # if we reach the end, go back to the beginning!
