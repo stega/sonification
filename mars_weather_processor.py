@@ -26,8 +26,6 @@ max_client   = udp_client.SimpleUDPClient('127.0.0.1', 4444)
 unity_client = udp_client.SimpleUDPClient('127.0.0.1', 4445)
 # variable for the parsed weather data
 weather_array = []
-# less than 1 -> deterioration in weather
-# greater than 1 -> improvement in weather
 weather_adjustment = 1
 
 # -------------------------------------------------------------------
@@ -193,13 +191,11 @@ def calc_weather_adjustment(pillar_hit):
     # better weather
     weather_adjustment += round(((0.49-pillar_hit)/0.49), 2)
     if weather_adjustment > 2: weather_adjustment = 2
-    # print(f"increased weather adjustment now ************** {weather_adjustment}")
 
   if 0.51 <= pillar_hit <= 1:
-    # worse weather - produces a value of between 0.1 and 0.9
+    # worse weather
     weather_adjustment -= round((pillar_hit-0.5)/0.5, 2)
     if weather_adjustment < 0.1: weather_adjustment = 0.1
-    # print(f"reduced weather adjustment now ************** {weather_adjustment}")
 
 # -------------------------------------------------------------------
 # set up the endpoints that the OSC server will expose
@@ -213,20 +209,13 @@ def configure_dispatcher():
 # -------------------------------------------------------------------
 def receive_pillar_hit(address: str, *args: List[Any]) -> None:
   pillar_hit = round(float(args[0]),2)
-  # if 0 <= pillar_hit <= 0.25:
-  #   print(f"SMALL pillar_hit: {pillar_hit}")
-  # if 0.26 <= pillar_hit <= 0.5:
-  #   print(f"MEDIUM pillar_hit: {pillar_hit}")
-  # if 0.51 <= pillar_hit <= 0.75:
-  #   print(f"BIG pillar_hit: {pillar_hit}")
-  # if 0.76 <= pillar_hit <= 1:
-  #   print(f"HUGE pillar_hit: {pillar_hit}")
+  print(f"received pillar hit: {pillar_hit}")
   calc_weather_adjustment(pillar_hit)
   max_client.send_message("/pillar_norm", pillar_hit)
 # -------------------------------------------------------------------
 def receive_game_status(address: str, *args: List[Any]) -> None:
   status = args[0]
-  # print(f"received game status: {status}")
+  print(f"received game status: {status}")
   max_client.send_message("/game_status", status)
 
 # -------------------------------------------------------------------
